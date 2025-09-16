@@ -1,0 +1,5 @@
+{
+  "name": "APP Trabajos Realizados - Pinos 28",
+  "description": "Una aplicación para rastrear, filtrar y gestionar registros de trabajo. Los usuarios pueden añadir nuevos registros, importar datos desde Excel y exportar datos a Excel.",
+  "requestFramePermissions": []
+}
