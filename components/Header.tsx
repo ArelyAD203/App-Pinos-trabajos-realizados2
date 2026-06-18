@@ -8,24 +8,39 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ theme, setTheme }) => {
   return (
-    <header className="relative text-center lg:text-left p-8 rounded-2xl bg-blue-900 dark:bg-blue-950 shadow-2xl shadow-blue-500/20 transition-all duration-500 ease-in-out hover:-translate-y-1 hover:shadow-blue-500/40">
+    <header className="relative p-8 rounded-2xl bg-blue-900 dark:bg-blue-950 shadow-2xl shadow-blue-500/20 transition-all duration-500 ease-in-out hover:-translate-y-1 hover:shadow-blue-500/40">
       <div className="absolute top-5 right-5">
           <ThemeToggle theme={theme} setTheme={setTheme} />
       </div>
-      <h1 className="text-3xl md:text-4xl font-bold text-white">
-        Reporte y seguimiento de trabajos realizados
-      </h1>
-      <p className="mt-2 text-3xl text-amber-300 font-bold tracking-wide">
-        Condominio Pinos 28
-      </p>
-      <p className="mt-4 text-lg text-blue-200 dark:text-blue-300 max-w-3xl mx-auto lg:mx-0">
-        Una herramienta para registrar, consultar y gestionar las tareas de mantenimiento y trabajos completados en el condominio.
-      </p>
-      <div className="mt-6 inline-block">
-        <div className="bg-gradient-to-r from-cyan-400 to-teal-500 dark:from-cyan-500 dark:to-teal-600 rounded-full px-5 py-2.5 shadow-lg transform transition-transform duration-300 hover:scale-105 hover:shadow-cyan-400/30">
-            <p className="text-sm font-bold text-white uppercase tracking-widest select-none">
-              Creado por Arely Aguilar
-            </p>
+
+      <div className="flex flex-col md:flex-row items-center md:items-center text-center md:text-left gap-8 mt-4 md:mt-0">
+        {/* LOGO CONTAINER */}
+        <div className="shrink-0 flex items-center justify-center">
+           {/* El archivo se leerá de public/logo.png */}
+           <img 
+             src="/logo.png" 
+             alt="Condominio Pinos 28 Logo" 
+             className="w-40 h-40 md:w-48 md:h-48 object-contain bg-white rounded-full border-4 border-amber-300 shadow-xl"
+           />
+        </div>
+
+        <div className="flex-1">
+          <h1 className="text-3xl md:text-4xl font-bold text-white">
+            Reporte y seguimiento de trabajos realizados
+          </h1>
+          <p className="mt-2 text-3xl text-amber-300 font-bold tracking-wide">
+            Condominio Pinos 28
+          </p>
+          <p className="mt-4 text-lg text-blue-200 dark:text-blue-300 max-w-3xl">
+            Una herramienta para registrar, consultar y gestionar las tareas de mantenimiento y trabajos completados en el condominio.
+          </p>
+          <div className="mt-6 inline-block">
+            <div className="bg-gradient-to-r from-cyan-400 to-teal-500 dark:from-cyan-500 dark:to-teal-600 rounded-full px-5 py-2.5 shadow-lg transform transition-transform duration-300 hover:scale-105 hover:shadow-cyan-400/30">
+                <p className="text-sm font-bold text-white uppercase tracking-widest select-none">
+                  Creado por Arely Aguilar
+                </p>
+            </div>
+          </div>
         </div>
       </div>
     </header>
