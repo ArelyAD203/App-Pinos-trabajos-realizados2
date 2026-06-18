@@ -82,8 +82,6 @@ function App() {
   }, [filters]);
 
   const filteredData = useMemo(() => {
-    if (!hasActiveFilters) return [];
-
     return workData.filter((item) => {
       const yearMatch =
         filters.year === "all" || item.ano === parseInt(filters.year, 10);
@@ -92,7 +90,7 @@ function App() {
         filters.person === "all" || item.persona === filters.person;
       return yearMatch && monthMatch && personMatch;
     });
-  }, [filters, workData, hasActiveFilters]);
+  }, [filters, workData]);
   
   const handleAddEntry = (newEntry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => {
      const entryToAdd: WorkEntry = {

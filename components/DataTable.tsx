@@ -67,10 +67,10 @@ const DataTable: React.FC<DataTableProps> = ({ data, hasActiveFilters, onDeleteE
                     <div className="flex flex-col items-center justify-center gap-4 transition-transform duration-300 ease-in-out hover:scale-105 cursor-pointer">
                         <FilterIcon className="text-slate-400 dark:text-slate-500" />
                         <p className="text-xl font-semibold text-slate-700 dark:text-slate-200">
-                           {hasActiveFilters ? "No se encontraron resultados" : "Reporte listo para consulta"}
+                           {hasActiveFilters ? "No se encontraron resultados" : "No hay registros disponibles"}
                         </p>
                         <p className="text-base">
-                            {hasActiveFilters ? "Intente ajustar o limpiar los filtros para ver más datos." : "Seleccione uno o más filtros para comenzar a ver la información."}
+                            {hasActiveFilters ? "Intente ajustar o limpiar los filtros para ver más datos." : "Agregue nuevos registros para visualizar la información."}
                         </p>
                     </div>
                 </td>
