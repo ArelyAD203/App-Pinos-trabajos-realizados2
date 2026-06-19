@@ -67,9 +67,12 @@ function App() {
   }, [workData]);
 
   const filterOptions = useMemo(() => {
-    const years = [...new Set(workData.map(item => item.ano))].sort((a, b) => b - a);
+    const dataYears = workData.map(item => item.ano);
+    const currentYear = new Date().getFullYear();
+    const allYears = Array.from(new Set([...dataYears, 2024, 2025, 2026, currentYear])).sort((a, b) => b - a);
+    
     const people = [...new Set(workData.map(item => item.persona))].sort();
-    return { years, months: MONTHS_ORDER, people };
+    return { years: allYears, months: MONTHS_ORDER, people };
   }, [workData]);
   
   const activeYearMonthsCount = useMemo(() => {
