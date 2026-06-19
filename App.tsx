@@ -87,7 +87,7 @@ function App() {
   const filteredData = useMemo(() => {
     return workData.filter((item) => {
       const yearMatch =
-        filters.year === "all" || item.ano === parseInt(filters.year, 10);
+        filters.year === "all" || String(item.ano) === String(filters.year);
       const monthMatch = filters.month === "all" || item.mes === filters.month;
       const personMatch =
         filters.person === "all" || item.persona === filters.person;
