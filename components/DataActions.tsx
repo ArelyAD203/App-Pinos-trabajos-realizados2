@@ -11,9 +11,20 @@ declare global {
 interface DataActionsProps {
   fullData: WorkEntry[];
   onImport: (data: any[]) => void;
+  onClearData: () => void;
 }
 
+const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    <line x1="10" y1="11" x2="10" y2="17"></line>
+    <line x1="14" y1="11" x2="14" y2="17"></line>
+  </svg>
+);
+
 const DownloadIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
     <polyline points="7 10 12 15 17 10" />
@@ -29,7 +40,7 @@ const UploadIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
-const DataActions: React.FC<DataActionsProps> = ({ fullData, onImport }) => {
+const DataActions: React.FC<DataActionsProps> = ({ fullData, onImport, onClearData }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExport = () => {
@@ -94,9 +105,13 @@ const DataActions: React.FC<DataActionsProps> = ({ fullData, onImport }) => {
     <div className="p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 transition-all duration-300 ease-in-out hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600">
       <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Gestión de Datos</h3>
       <div className="flex flex-col sm:flex-row gap-4">
-        <button onClick={handleImportClick} className="flex-1 inline-flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-[#9B5DE5] text-white hover:bg-[#8A49D1] hover:shadow-lg hover:shadow-purple-500/20 focus:outline-none focus:ring-2 focus:ring-[#9B5DE5] focus:ring-offset-2 dark:focus:ring-offset-slate-800 transform hover:-translate-y-0.5">
+        <button onClick={onClearData} title="Borrará todos los registros de la nube" className="flex-1 inline-flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-red-500 text-white hover:bg-red-600 hover:shadow-lg hover:shadow-red-500/20 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800 transform hover:-translate-y-0.5">
+          <TrashIcon />
+          Limpiar BD
+        </button>
+        <button onClick={handleImportClick} title="Esto borrará los datos actuales y los reemplazará con los del Excel" className="flex-1 inline-flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-[#9B5DE5] text-white hover:bg-[#8A49D1] hover:shadow-lg hover:shadow-purple-500/20 focus:outline-none focus:ring-2 focus:ring-[#9B5DE5] focus:ring-offset-2 dark:focus:ring-offset-slate-800 transform hover:-translate-y-0.5">
             <UploadIcon />
-            Importar desde Excel
+            Importar y Reemplazar Datos
         </button>
         <input
           type="file"

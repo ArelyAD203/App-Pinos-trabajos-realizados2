@@ -148,13 +148,33 @@ function App() {
       if (a.ano !== b.ano) {
         return a.ano - b.ano;
       }
-      return MONTHS_ORDER.indexOf(a.mes) - MONTHS_ORDER.indexOf(b.mes);
+      
+      const cleanMonth = (m: string) => {
+        if (!m) return "";
+        let trimmed = m.trim().toLowerCase();
+        // Corrección automática para el error de Excel ("Septiembr" sin e)
+        if (trimmed === 'septiembr') trimmed = 'septiembre';
+        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+      };
+
+      const monthA = cleanMonth(a.mes);
+      const monthB = cleanMonth(b.mes);
+
+      const indexA = MONTHS_ORDER.indexOf(monthA);
+      const indexB = MONTHS_ORDER.indexOf(monthB);
+
+      // Si no se encuentra el mes (ej: error tipográfico), se manda al final
+      const posA = indexA === -1 ? 99 : indexA;
+      const posB = indexB === -1 ? 99 : indexB;
+
+      return posA - posB;
     });
   }, [filters, workData]);
   
   const handleAddEntry = async (newEntry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => {
      const entryData = {
       ...newEntry,
+      mes: newEntry.mes.trim(),
       ano: typeof newEntry.ano === 'string' ? parseInt(newEntry.ano, 10) : newEntry.ano,
     };
     try {
@@ -183,6 +203,38 @@ function App() {
   const handleCancelDelete = () => {
     setIsConfirmModalOpen(false);
     setRecordIdToDelete(null);
+  };
+
+  const handleClearDatabase = async () => {
+    if (!window.confirm("¿Estás seguro de que deseas vaciar toda la base de datos? Esta acción es irreversible.")) {
+      return;
+    }
+    
+    setIsFirebaseLoading(true);
+    try {
+      const querySnapshot = await getDocs(collection(db, 'workEntries'));
+      let deleteBatch = writeBatch(db);
+      let deleteCount = 0;
+      
+      for (const docSnap of querySnapshot.docs) {
+        deleteBatch.delete(docSnap.ref);
+        deleteCount++;
+        if (deleteCount === 400) {
+          await deleteBatch.commit();
+          deleteBatch = writeBatch(db);
+          deleteCount = 0;
+        }
+      }
+      if (deleteCount > 0) {
+        await deleteBatch.commit();
+      }
+      alert("Base de datos limpiada correctamente.");
+    } catch (error) {
+      console.error("Error clearing database:", error);
+      alert("Hubo un error al limpiar la base de datos.");
+    } finally {
+      setIsFirebaseLoading(false);
+    }
   };
 
   const handleImportData = async (importedData: any[]) => {
@@ -238,6 +290,25 @@ function App() {
     
     if (parsedData.length > 0) {
       try {
+        // 1. Borrar datos existentes
+        const querySnapshot = await getDocs(collection(db, 'workEntries'));
+        let deleteBatch = writeBatch(db);
+        let deleteCount = 0;
+        
+        for (const docSnap of querySnapshot.docs) {
+          deleteBatch.delete(docSnap.ref);
+          deleteCount++;
+          if (deleteCount === 400) {
+            await deleteBatch.commit();
+            deleteBatch = writeBatch(db);
+            deleteCount = 0;
+          }
+        }
+        if (deleteCount > 0) {
+          await deleteBatch.commit();
+        }
+
+        // 2. Insertar los nuevos datos
         let batch = writeBatch(db);
         let count = 0;
         
@@ -300,6 +371,7 @@ function App() {
               <DataActions
                 fullData={workData}
                 onImport={handleImportData}
+                onClearData={handleClearDatabase}
               />
               <AddEntryForm 
                 peopleOptions={filterOptions.people}
