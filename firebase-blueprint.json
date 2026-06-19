@@ -1,0 +1,18 @@
+{
+  "$schema": "https://aistudio.google.com/rules-blueprint-schema.json",
+  "collections": [
+    {
+      "name": "workEntries",
+      "fields": [
+        { "name": "mes", "type": "string" },
+        { "name": "ano", "type": "number" },
+        { "name": "persona", "type": "string" },
+        { "name": "trabajo", "type": "string" }
+      ],
+      "rules": {
+        "read": "true",
+        "write": "true"
+      }
+    }
+  ]
+}

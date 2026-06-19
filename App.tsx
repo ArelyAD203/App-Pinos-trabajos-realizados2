@@ -8,6 +8,8 @@ import DataTable from './components/DataTable';
 import DataActions from './components/DataActions';
 import AddEntryForm from './components/AddEntryForm';
 import ConfirmationModal from './components/ConfirmationModal';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDocs } from 'firebase/firestore';
+import { db } from './firebase';
 
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -23,31 +25,88 @@ function App() {
   
   const [workData, setWorkData] = useState<WorkEntry[]>(() => {
     try {
-      const savedVersion = window.localStorage.getItem('dataVersion');
       const savedData = window.localStorage.getItem('workData');
-
-      if (savedVersion === DATA_VERSION && savedData) {
+      if (savedData) {
         return JSON.parse(savedData);
       }
-
-      const initialData = WORK_DATA.map((entry) => ({
-        ...entry,
-        id: crypto.randomUUID(),
-      }));
-      
-      window.localStorage.setItem('workData', JSON.stringify(initialData));
-      window.localStorage.setItem('dataVersion', DATA_VERSION);
-      return initialData;
-      
-    } catch (error) {
-      console.error("Error initializing data state:", error);
-      const fallbackData = WORK_DATA.map((entry) => ({
-        ...entry,
-        id: crypto.randomUUID(),
-      }));
-      return fallbackData;
+    } catch {
+      // ignore
     }
+    return WORK_DATA.map((entry) => ({ ...entry, id: crypto.randomUUID() }));
   });
+  const [isFirebaseLoading, setIsFirebaseLoading] = useState(true);
+
+  // Sync with Firebase
+  useEffect(() => {
+    let unsubscribe: () => void;
+
+    const initFirebase = async () => {
+      try {
+        const entriesRef = collection(db, 'workEntries');
+        const snap = await getDocs(entriesRef);
+        
+        // Seed initial data if Firebase is empty
+        if (snap.empty) {
+          console.log('Seeding initial data to Firebase...');
+          let dataToSeed = [...WORK_DATA];
+
+          // Check if local storage has more data (from previous local app version)
+          try {
+            const savedData = window.localStorage.getItem('workData');
+            if (savedData) {
+              const parsedLocalData = JSON.parse(savedData) as WorkEntry[];
+              if (parsedLocalData.length > dataToSeed.length) {
+                dataToSeed = parsedLocalData;
+                console.log(`Found ${dataToSeed.length} records in local storage, migrating those to Firebase.`);
+              }
+            }
+          } catch(e) {
+            console.error("Could not read local data for migration", e);
+          }
+
+          let batch = writeBatch(db);
+          let count = 0;
+          
+          for (const entry of dataToSeed) {
+            const docRef = doc(collection(db, 'workEntries'));
+            const { id, ...dataToSave } = entry; // Strip local fake IDs
+            batch.set(docRef, { ...dataToSave, ano: typeof dataToSave.ano === 'string' ? parseInt(dataToSave.ano, 10) : dataToSave.ano });
+            count++;
+
+            if (count === 400) {
+              await batch.commit();
+              batch = writeBatch(db);
+              count = 0;
+            }
+          }
+          
+          if (count > 0) {
+            await batch.commit();
+          }
+        }
+      } catch (err) {
+        console.error("Error seeding data", err);
+      }
+
+      unsubscribe = onSnapshot(collection(db, 'workEntries'), (snapshot) => {
+        const entries: WorkEntry[] = [];
+        snapshot.forEach((docSnap) => {
+          entries.push({ id: docSnap.id, ...docSnap.data() } as WorkEntry);
+        });
+        setWorkData(entries);
+        setIsFirebaseLoading(false);
+      }, (error) => {
+        console.error("Error fetching data from Firebase:", error);
+        setIsFirebaseLoading(false);
+      });
+    };
+
+    initFirebase();
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   const [filters, setFilters] = useState<Filters>({
     year: 'all',
@@ -58,18 +117,9 @@ function App() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [recordIdToDelete, setRecordIdToDelete] = useState<string | null>(null);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('workData', JSON.stringify(workData));
-    } catch (error) {
-      console.error("Error writing to localStorage", error);
-    }
-  }, [workData]);
-
   const filterOptions = useMemo(() => {
     const dataYears = workData.map(item => item.ano);
-    const currentYear = new Date().getFullYear();
-    const allYears = Array.from(new Set([...dataYears, 2024, 2025, 2026, currentYear])).sort((a, b) => b - a);
+    const allYears = Array.from(new Set(dataYears)).sort((a, b) => b - a);
     
     const people = [...new Set(workData.map(item => item.persona))].sort();
     return { years: allYears, months: MONTHS_ORDER, people };
@@ -95,13 +145,16 @@ function App() {
     });
   }, [filters, workData]);
   
-  const handleAddEntry = (newEntry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => {
-     const entryToAdd: WorkEntry = {
+  const handleAddEntry = async (newEntry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => {
+     const entryData = {
       ...newEntry,
       ano: typeof newEntry.ano === 'string' ? parseInt(newEntry.ano, 10) : newEntry.ano,
-      id: crypto.randomUUID(),
     };
-    setWorkData(prevData => [...prevData, entryToAdd]);
+    try {
+      await addDoc(collection(db, 'workEntries'), entryData);
+    } catch (err) {
+      console.error("Error adding entry", err);
+    }
   };
 
   const handleDeleteEntry = (id: string) => {
@@ -109,18 +162,13 @@ function App() {
     setIsConfirmModalOpen(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!recordIdToDelete) return;
-    setWorkData(currentData => {
-      const indexToDelete = currentData.findIndex(entry => entry.id === recordIdToDelete);
-      if (indexToDelete === -1) {
-        return currentData;
-      }
-      return [
-        ...currentData.slice(0, indexToDelete),
-        ...currentData.slice(indexToDelete + 1),
-      ];
-    });
+    try {
+      await deleteDoc(doc(db, 'workEntries', recordIdToDelete));
+    } catch (error) {
+      console.error("Error deleting entry", error);
+    }
     setIsConfirmModalOpen(false);
     setRecordIdToDelete(null);
   };
@@ -130,7 +178,7 @@ function App() {
     setRecordIdToDelete(null);
   };
 
-  const handleImportData = (importedData: any[]) => {
+  const handleImportData = async (importedData: any[]) => {
     const parsedData: WorkEntry[] = importedData
       .map((rawRow): WorkEntry | null => {
         const row: { [key:string]: any } = {};
@@ -182,7 +230,30 @@ function App() {
     }
     
     if (parsedData.length > 0) {
-      setWorkData(parsedData);
+      try {
+        let batch = writeBatch(db);
+        let count = 0;
+        
+        for (const entry of parsedData) {
+          const docRef = doc(collection(db, 'workEntries'));
+          const { id, ...dataToSave } = entry;
+          batch.set(docRef, dataToSave);
+          count++;
+
+          if (count === 400) {
+            await batch.commit();
+            batch = writeBatch(db);
+            count = 0;
+          }
+        }
+        
+        if (count > 0) {
+          await batch.commit();
+        }
+      } catch (error) {
+         console.error("Error saving imported data", error);
+         alert("Hubo un error al intentar guardar los datos importados en la nube.");
+      }
     }
   };
 
@@ -198,33 +269,39 @@ function App() {
 
 
   return (
-    <div className="min-h-screen font-sans text-slate-800 dark:text-slate-200">
-      <div className="container mx-auto p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen font-sans text-slate-800 dark:text-slate-200 flex flex-col">
+      <div className="container mx-auto p-4 sm:p-6 md:p-8 flex-1">
         <Header theme={theme} setTheme={setTheme} />
-        <main className="mt-8 flex flex-col gap-8">
-          <StatCards 
-            totalEntries={workData.length}
-            uniquePeople={filterOptions.people.length}
-            activeMonths={activeYearMonthsCount}
-          />
-          <FilterPanel 
-            filters={filters}
-            setFilters={setFilters}
-            options={filterOptions}
-          />
-          <DataTable data={filteredData} hasActiveFilters={hasActiveFilters} onDeleteEntry={handleDeleteEntry} />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <DataActions
-              fullData={workData}
-              onImport={handleImportData}
-            />
-            <AddEntryForm 
-              peopleOptions={filterOptions.people}
-              monthOptions={MONTHS_ORDER}
-              onAddEntry={handleAddEntry}
-            />
+        {isFirebaseLoading && workData.length === 0 ? (
+          <div className="flex justify-center items-center h-64 mt-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 dark:border-indigo-400"></div>
           </div>
-        </main>
+        ) : (
+          <main className="mt-8 flex flex-col gap-8 flex-1">
+            <StatCards 
+              totalEntries={workData.length}
+              uniquePeople={filterOptions.people.length}
+              activeMonths={activeYearMonthsCount}
+            />
+            <FilterPanel 
+              filters={filters}
+              setFilters={setFilters}
+              options={filterOptions}
+            />
+            <DataTable data={filteredData} hasActiveFilters={hasActiveFilters} onDeleteEntry={handleDeleteEntry} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-8">
+              <DataActions
+                fullData={workData}
+                onImport={handleImportData}
+              />
+              <AddEntryForm 
+                peopleOptions={filterOptions.people}
+                monthOptions={MONTHS_ORDER}
+                onAddEntry={handleAddEntry}
+              />
+            </div>
+          </main>
+        )}
       </div>
       <ConfirmationModal
         isOpen={isConfirmModalOpen}
