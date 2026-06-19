@@ -135,13 +135,20 @@ function App() {
   }, [filters]);
 
   const filteredData = useMemo(() => {
-    return workData.filter((item) => {
+    const filtered = workData.filter((item) => {
       const yearMatch =
         filters.year === "all" || String(item.ano) === String(filters.year);
       const monthMatch = filters.month === "all" || item.mes === filters.month;
       const personMatch =
         filters.person === "all" || item.persona === filters.person;
       return yearMatch && monthMatch && personMatch;
+    });
+
+    return filtered.sort((a, b) => {
+      if (a.ano !== b.ano) {
+        return a.ano - b.ano;
+      }
+      return MONTHS_ORDER.indexOf(a.mes) - MONTHS_ORDER.indexOf(b.mes);
     });
   }, [filters, workData]);
   
