@@ -4,6 +4,8 @@ import { MONTHS_ORDER } from '../constants';
 
 interface FilterPanelProps {
   filters: Filters;
+  resultCount: number;
+  personCounts: { person: string; count: number }[];
   setFilters: React.Dispatch<React.SetStateAction<Filters>>;
   options: {
     years: number[];
@@ -50,19 +52,19 @@ const FilterButton: React.FC<{
   const inactiveClasses = "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600/60 hover:-translate-y-px";
 
   return (
-    <button onClick={onClick} className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}>
+    <button aria-pressed={isActive} onClick={onClick} className={`${baseClasses} ${isActive ? activeClasses : inactiveClasses}`}>
       {label}
     </button>
   );
 };
 
-const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options }) => {
-  const handleFilterChange = (filterName: keyof Filters, value: string) => {
+const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options, resultCount, personCounts }) => {
+  const handleFilterChange = (filterName: 'year' | 'month' | 'search', value: string) => {
     setFilters(prev => ({ ...prev, [filterName]: value }));
   };
 
   const resetFilters = () => {
-    setFilters({ year: 'all', month: 'all', person: 'all' });
+    setFilters({ year: 'all', month: 'all', person: [], search: '' });
   };
 
   const firstHalfMonths = options.months.filter(
@@ -74,6 +76,14 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options 
 
   return (
     <div className="p-6 bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 transition-all duration-300 ease-in-out hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600">
+      <div className="mb-6">
+        <label htmlFor="record-search" className="block mb-2 text-sm font-semibold">Buscar por palabra</label>
+        <input id="record-search" type="search" value={filters.search}
+          onChange={event => handleFilterChange('search', event.target.value)}
+          placeholder="Buscar en trabajos, personas, meses o años…"
+          className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+      </div>
+      <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">En Persona puedes seleccionar varias personas a la vez.</p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-8">
         {/* Year Kanban Column */}
         <div className="space-y-3">
@@ -144,22 +154,46 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options 
           <div className="flex flex-col gap-2">
             <FilterButton
               label="Todos"
-              isActive={filters.person === 'all'}
-              onClick={() => handleFilterChange('person', 'all')}
+              isActive={filters.person.length === 0}
+              onClick={() => setFilters(prev => ({ ...prev, person: [] }))}
             />
             {options.people.map(person => (
               <FilterButton
                 key={person}
                 label={person}
-                isActive={filters.person === person}
-                onClick={() => handleFilterChange('person', person)}
+                isActive={filters.person.includes(person)}
+                onClick={() => setFilters(prev => ({ ...prev, person: prev.person.includes(person)
+                  ? prev.person.filter(selected => selected !== person)
+                  : [...prev.person, person] }))}
               />
             ))}
           </div>
         </div>
       </div>
       
-      <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+      <section aria-label="Resumen de registros filtrados" aria-live="polite" className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-700">
+        <h3 className="mb-3 text-base font-bold">Registros según los filtros</h3>
+        <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {personCounts.map(({ person, count }) => (
+            <div key={person} className="rounded-lg bg-slate-100 dark:bg-slate-700 p-4 flex items-center justify-between gap-3">
+              <dt className="font-semibold">{person}</dt>
+              <dd className="text-xl font-bold">{count}</dd>
+            </div>
+          ))}
+          <div className="rounded-lg bg-purple-100 dark:bg-purple-900 p-4 flex items-center justify-between gap-3">
+            <dt className="font-bold">Total general</dt>
+            <dd className="text-xl font-bold">{resultCount}</dd>
+          </div>
+        </dl>
+      </section>
+      <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4">
+         <p role="status" aria-live="polite" className="text-sm font-semibold">
+           {resultCount} {resultCount === 1 ? 'registro encontrado' : 'registros encontrados'}
+           {filters.person.length > 0 && ` · ${filters.person.join(', ')}`}
+           {filters.month !== 'all' && ` · ${filters.month}`}
+           {filters.year !== 'all' && ` · ${filters.year}`}
+           {filters.search.trim() && ` · Búsqueda: “${filters.search.trim()}”`}
+         </p>
          <button 
             onClick={resetFilters}
             className="text-sm font-semibold text-[#9B5DE5] dark:text-purple-400 hover:underline focus:outline-none transition-transform duration-200 ease-in-out hover:scale-105"

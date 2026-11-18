@@ -3,6 +3,7 @@ import type { WorkEntry } from '../types';
 
 interface DataTableProps {
   data: WorkEntry[];
+  people: string[];
   hasActiveFilters: boolean;
   onDeleteEntry: (id: string) => void;
 }
@@ -23,7 +24,7 @@ const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     </svg>
 );
 
-const DataTable: React.FC<DataTableProps> = ({ data, hasActiveFilters, onDeleteEntry }) => {
+const DataTable: React.FC<DataTableProps> = ({ data, people, hasActiveFilters, onDeleteEntry }) => {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg overflow-hidden border border-slate-200 dark:border-slate-700">
       <div className="overflow-x-auto">
@@ -80,7 +81,18 @@ const DataTable: React.FC<DataTableProps> = ({ data, hasActiveFilters, onDeleteE
         </table>
       </div>
       <div className="p-5 bg-slate-50 dark:bg-slate-800/80 text-base text-slate-600 dark:text-slate-400 border-t dark:border-slate-700">
-        Mostrando {data.length} resultado(s)
+        <dl aria-label="Totales de los registros filtrados" aria-live="polite" className="flex flex-wrap gap-x-8 gap-y-3">
+          {people.map(person => (
+            <div key={person} className="flex items-center gap-2">
+              <dt>{person}:</dt>
+              <dd className="font-bold text-slate-900 dark:text-white">{data.filter(entry => entry.persona === person).length}</dd>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+            <dt>Total general:</dt>
+            <dd>{data.length} {data.length === 1 ? 'registro' : 'registros'}</dd>
+          </div>
+        </dl>
       </div>
     </div>
   );

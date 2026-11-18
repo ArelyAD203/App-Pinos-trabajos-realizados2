@@ -7,7 +7,8 @@ export interface WorkEntry {
 }
 
 export interface Filters {
+  search: string;
   year: string;
   month: string;
-  person: string;
+  person: string[];
 }

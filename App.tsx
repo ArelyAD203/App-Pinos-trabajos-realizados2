@@ -111,7 +111,8 @@ function App() {
   const [filters, setFilters] = useState<Filters>({
     year: 'all',
     month: 'all',
-    person: 'all',
+    person: [],
+    search: '',
   });
   
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -131,17 +132,20 @@ function App() {
   }, [workData]);
 
   const hasActiveFilters = useMemo(() => {
-    return filters.year !== 'all' || filters.month !== 'all' || filters.person !== 'all';
+    return filters.year !== 'all' || filters.month !== 'all' || filters.person.length > 0 || filters.search.trim() !== '';
   }, [filters]);
 
   const filteredData = useMemo(() => {
+    const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const terms = normalize(filters.search).trim().split(/\s+/).filter(Boolean);
     const filtered = workData.filter((item) => {
       const yearMatch =
         filters.year === "all" || String(item.ano) === String(filters.year);
       const monthMatch = filters.month === "all" || item.mes === filters.month;
       const personMatch =
-        filters.person === "all" || item.persona === filters.person;
-      return yearMatch && monthMatch && personMatch;
+        filters.person.length === 0 || filters.person.includes(item.persona);
+      const text = normalize(`${item.trabajo} ${item.persona} ${item.mes} ${item.ano}`);
+      return yearMatch && monthMatch && personMatch && terms.every(term => text.includes(term));
     });
 
     return filtered.sort((a, b) => {
@@ -365,8 +369,12 @@ function App() {
               filters={filters}
               setFilters={setFilters}
               options={filterOptions}
+              resultCount={filteredData.length}
+              personCounts={filterOptions.people
+                .filter(person => filters.person.length === 0 || filters.person.includes(person))
+                .map(person => ({ person, count: filteredData.filter(entry => entry.persona === person).length }))}
             />
-            <DataTable data={filteredData} hasActiveFilters={hasActiveFilters} onDeleteEntry={handleDeleteEntry} />
+            <DataTable people={filterOptions.people.filter(person => filters.person.length === 0 || filters.person.includes(person))} data={filteredData} hasActiveFilters={hasActiveFilters} onDeleteEntry={handleDeleteEntry} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-8">
               <DataActions
                 fullData={workData}
