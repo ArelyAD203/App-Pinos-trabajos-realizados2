@@ -1,6 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import type { WorkEntry, Filters } from './types';
-import { WORK_DATA, MONTHS_ORDER, DATA_VERSION } from './constants';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { WorkEntry } from './types';
+import { WORK_DATA, MONTHS_ORDER } from './constants';
+import { CATEGORIES, categoryOf, filterEntries } from './workFilters';
+import { useSavedView } from './useSavedView';
+import WorkCharts from './components/WorkCharts';
 import Header from './components/Header';
 import StatCards from './components/StatCards';
 import FilterPanel from './components/FilterPanel';
@@ -8,397 +11,171 @@ import DataTable from './components/DataTable';
 import DataActions from './components/DataActions';
 import AddEntryForm from './components/AddEntryForm';
 import ConfirmationModal from './components/ConfirmationModal';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, writeBatch, getDocs, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
+const REVIEW_MODE = import.meta.env.VITE_REVIEW_MODE === 'true';
+const metadataRef = doc(db, 'appMetadata', 'workEntries');
+interface UpdateInfo { updatedAt?: string; lastImportAt?: string; importFileName?: string; importCount?: number }
+const dateString = (value: any): string | undefined => value?.toDate?.().toISOString() || (typeof value === 'string' ? value : undefined);
+const readInfo = (data: any): UpdateInfo => ({ updatedAt: dateString(data?.updatedAt), lastImportAt: dateString(data?.lastImportAt), importFileName: data?.importFileName, importCount: data?.importCount });
+const formatDate = (value?: string) => value && !Number.isNaN(Date.parse(value)) ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Mexico_City' }).format(new Date(value)) : 'Sin fecha registrada';
+
 function App() {
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [info, setInfo] = useState<UpdateInfo>({});
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const storedTheme = window.localStorage.getItem('theme');
-      if (storedTheme === 'light' || storedTheme === 'dark') {
-        return storedTheme;
-      }
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    return 'light';
+    try { const saved = localStorage.getItem('theme'); if (saved === 'light' || saved === 'dark') return saved; } catch { /* Use system preference. */ }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
-  
-  const [workData, setWorkData] = useState<WorkEntry[]>(() => {
-    try {
-      const savedData = window.localStorage.getItem('workData');
-      if (savedData) {
-        return JSON.parse(savedData);
-      }
-    } catch {
-      // ignore
-    }
-    return WORK_DATA.map((entry) => ({ ...entry, id: crypto.randomUUID() }));
-  });
+  const [workData, setWorkData] = useState<WorkEntry[]>([]);
   const [isFirebaseLoading, setIsFirebaseLoading] = useState(true);
-
-  // Sync with Firebase
-  useEffect(() => {
-    let unsubscribe: () => void;
-
-    const initFirebase = async () => {
-      try {
-        const entriesRef = collection(db, 'workEntries');
-        const snap = await getDocs(entriesRef);
-        
-        // Seed initial data if Firebase is empty
-        if (snap.empty) {
-          console.log('Seeding initial data to Firebase...');
-          let dataToSeed = [...WORK_DATA];
-
-          // Check if local storage has more data (from previous local app version)
-          try {
-            const savedData = window.localStorage.getItem('workData');
-            if (savedData) {
-              const parsedLocalData = JSON.parse(savedData) as WorkEntry[];
-              if (parsedLocalData.length > dataToSeed.length) {
-                dataToSeed = parsedLocalData;
-                console.log(`Found ${dataToSeed.length} records in local storage, migrating those to Firebase.`);
-              }
-            }
-          } catch(e) {
-            console.error("Could not read local data for migration", e);
-          }
-
-          let batch = writeBatch(db);
-          let count = 0;
-          
-          for (const entry of dataToSeed) {
-            const docRef = doc(collection(db, 'workEntries'));
-            const { id, ...dataToSave } = entry; // Strip local fake IDs
-            batch.set(docRef, { ...dataToSave, ano: typeof dataToSave.ano === 'string' ? parseInt(dataToSave.ano, 10) : dataToSave.ano });
-            count++;
-
-            if (count === 400) {
-              await batch.commit();
-              batch = writeBatch(db);
-              count = 0;
-            }
-          }
-          
-          if (count > 0) {
-            await batch.commit();
-          }
-        }
-      } catch (err) {
-        console.error("Error seeding data", err);
-      }
-
-      unsubscribe = onSnapshot(collection(db, 'workEntries'), (snapshot) => {
-        const entries: WorkEntry[] = [];
-        snapshot.forEach((docSnap) => {
-          entries.push({ id: docSnap.id, ...docSnap.data() } as WorkEntry);
-        });
-        setWorkData(entries);
-        setIsFirebaseLoading(false);
-      }, (error) => {
-        console.error("Error fetching data from Firebase:", error);
-        setIsFirebaseLoading(false);
-      });
-    };
-
-    initFirebase();
-    
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, []);
-
-  const [filters, setFilters] = useState<Filters>({
-    year: 'all',
-    month: 'all',
-    person: [],
-    search: '',
-  });
-  
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const { view, setFilters, setPage, setPageSize, reset } = useSavedView(REVIEW_MODE ? 'pinos-review-view-v3' : 'pinos-view-v3', isFirebaseLoading);
+  const filters = view.filters;
   const [recordIdToDelete, setRecordIdToDelete] = useState<string | null>(null);
 
-  const filterOptions = useMemo(() => {
-    const dataYears = workData.map(item => item.ano);
-    const allYears = Array.from(new Set(dataYears)).sort((a, b) => b - a);
-    
-    const people = [...new Set(workData.map(item => item.persona))].sort();
-    return { years: allYears, months: MONTHS_ORDER, people };
-  }, [workData]);
-  
-  const activeYearMonthsCount = useMemo(() => {
-    const uniqueYearMonths = new Set(workData.map(item => `${item.ano}-${item.mes}`));
-    return uniqueYearMonths.size;
-  }, [workData]);
-
-  const hasActiveFilters = useMemo(() => {
-    return filters.year !== 'all' || filters.month !== 'all' || filters.person.length > 0 || filters.search.trim() !== '';
-  }, [filters]);
-
-  const filteredData = useMemo(() => {
-    const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const terms = normalize(filters.search).trim().split(/\s+/).filter(Boolean);
-    const filtered = workData.filter((item) => {
-      const yearMatch =
-        filters.year === "all" || String(item.ano) === String(filters.year);
-      const monthMatch = filters.month === "all" || item.mes === filters.month;
-      const personMatch =
-        filters.person.length === 0 || filters.person.includes(item.persona);
-      const text = normalize(`${item.trabajo} ${item.persona} ${item.mes} ${item.ano}`);
-      return yearMatch && monthMatch && personMatch && terms.every(term => text.includes(term));
+  useEffect(() => {
+    let active = true;
+    if (REVIEW_MODE) {
+      Promise.all([getDocs(collection(db, 'workEntries')), getDoc(metadataRef).catch(() => null), import('./previewCategories')]).then(([entries, metadata, { withReviewCategories }]) => {
+        if (!active) return;
+        setWorkData(withReviewCategories(entries.docs.map(item => ({ ...item.data(), id: item.id } as WorkEntry))));
+        setInfo(readInfo(metadata?.data()));
+      }).catch(() => {
+        if (!active) return;
+        setWorkData(WORK_DATA.map(entry => ({ ...entry, id: crypto.randomUUID() })));
+        setNotice({ text: 'No se pudieron cargar los datos reales. Se muestran datos de respaldo para esta revisión.', error: true });
+      }).finally(() => { if (active) setIsFirebaseLoading(false); });
+      return () => { active = false; };
+    }
+    const unsubscribeEntries = onSnapshot(collection(db, 'workEntries'), snapshot => {
+      setWorkData(snapshot.docs.map(item => ({ ...item.data(), id: item.id } as WorkEntry)));
+      setLoadFailed(false); setIsFirebaseLoading(false);
+    }, () => {
+      setLoadFailed(true); setIsFirebaseLoading(false);
+      setNotice({ text: 'No se pudieron cargar los registros. Revisa tu conexión y recarga la página.', error: true });
     });
-
-    return filtered.sort((a, b) => {
-      if (a.ano !== b.ano) {
-        return a.ano - b.ano;
-      }
-      
-      const cleanMonth = (m: string) => {
-        if (!m) return "";
-        let trimmed = m.trim().toLowerCase();
-        // Corrección automática para el error de Excel ("Septiembr" sin e)
-        if (trimmed === 'septiembr') trimmed = 'septiembre';
-        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-      };
-
-      const monthA = cleanMonth(a.mes);
-      const monthB = cleanMonth(b.mes);
-
-      const indexA = MONTHS_ORDER.indexOf(monthA);
-      const indexB = MONTHS_ORDER.indexOf(monthB);
-
-      // Si no se encuentra el mes (ej: error tipográfico), se manda al final
-      const posA = indexA === -1 ? 99 : indexA;
-      const posB = indexB === -1 ? 99 : indexB;
-
-      return posA - posB;
+    const unsubscribeMetadata = onSnapshot(metadataRef, snapshot => setInfo(readInfo(snapshot.data())), () => {
+      setNotice({ text: 'Los registros están disponibles, pero no se pudo consultar la fecha de actualización.', error: true });
     });
-  }, [filters, workData]);
-  
-  const handleAddEntry = async (newEntry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => {
-     const entryData = {
-      ...newEntry,
-      mes: newEntry.mes.trim(),
-      ano: typeof newEntry.ano === 'string' ? parseInt(newEntry.ano, 10) : newEntry.ano,
-    };
-    try {
-      await addDoc(collection(db, 'workEntries'), entryData);
-    } catch (err) {
-      console.error("Error adding entry", err);
-    }
-  };
-
-  const handleDeleteEntry = (id: string) => {
-    setRecordIdToDelete(id);
-    setIsConfirmModalOpen(true);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!recordIdToDelete) return;
-    try {
-      await deleteDoc(doc(db, 'workEntries', recordIdToDelete));
-    } catch (error) {
-      console.error("Error deleting entry", error);
-    }
-    setIsConfirmModalOpen(false);
-    setRecordIdToDelete(null);
-  };
-
-  const handleCancelDelete = () => {
-    setIsConfirmModalOpen(false);
-    setRecordIdToDelete(null);
-  };
-
-  const handleClearDatabase = async () => {
-    if (!window.confirm("¿Estás seguro de que deseas vaciar toda la base de datos? Esta acción es irreversible.")) {
-      return;
-    }
-    
-    setIsFirebaseLoading(true);
-    try {
-      const querySnapshot = await getDocs(collection(db, 'workEntries'));
-      let deleteBatch = writeBatch(db);
-      let deleteCount = 0;
-      
-      for (const docSnap of querySnapshot.docs) {
-        deleteBatch.delete(docSnap.ref);
-        deleteCount++;
-        if (deleteCount === 400) {
-          await deleteBatch.commit();
-          deleteBatch = writeBatch(db);
-          deleteCount = 0;
-        }
-      }
-      if (deleteCount > 0) {
-        await deleteBatch.commit();
-      }
-      alert("Base de datos limpiada correctamente.");
-    } catch (error) {
-      console.error("Error clearing database:", error);
-      alert("Hubo un error al limpiar la base de datos.");
-    } finally {
-      setIsFirebaseLoading(false);
-    }
-  };
-
-  const handleImportData = async (importedData: any[]) => {
-    const parsedData: WorkEntry[] = importedData
-      .map((rawRow): WorkEntry | null => {
-        const row: { [key:string]: any } = {};
-        Object.keys(rawRow).forEach(key => {
-          row[key.toLowerCase().trim()] = rawRow[key];
-        });
-
-        const anoKeys = ['año', 'ano'];
-        const mesKeys = ['mes'];
-        const personaKeys = ['persona'];
-        const trabajoKeys = ['trabajo realizado', 'trabajo'];
-
-        const findValue = (keys: string[]) => {
-          for (const key of keys) {
-            if (row[key] !== undefined && row[key] !== null) {
-              return row[key];
-            }
-          }
-          return '';
-        };
-
-        const anoStr = String(findValue(anoKeys));
-        const personaStr = String(findValue(personaKeys)).trim();
-        const mesStr = String(findValue(mesKeys));
-        const trabajoStr = String(findValue(trabajoKeys));
-
-        if (!personaStr || !trabajoStr || !mesStr || !anoStr) {
-          return null;
-        }
-
-        const anoNum = parseInt(anoStr, 10);
-        if (isNaN(anoNum)) {
-            return null;
-        }
-
-        return {
-          id: crypto.randomUUID(),
-          mes: mesStr,
-          ano: anoNum,
-          persona: personaStr,
-          trabajo: trabajoStr,
-        };
-      })
-      .filter((entry): entry is WorkEntry => entry !== null);
-
-    if (parsedData.length === 0 && importedData.length > 0) {
-      alert("Error: No se pudieron importar los datos. Verifique que el archivo Excel tenga columnas con los encabezados: 'Año' (o 'Ano'), 'Mes', 'Persona' y 'Trabajo Realizado'.");
-      return;
-    }
-    
-    if (parsedData.length > 0) {
-      try {
-        // 1. Borrar datos existentes
-        const querySnapshot = await getDocs(collection(db, 'workEntries'));
-        let deleteBatch = writeBatch(db);
-        let deleteCount = 0;
-        
-        for (const docSnap of querySnapshot.docs) {
-          deleteBatch.delete(docSnap.ref);
-          deleteCount++;
-          if (deleteCount === 400) {
-            await deleteBatch.commit();
-            deleteBatch = writeBatch(db);
-            deleteCount = 0;
-          }
-        }
-        if (deleteCount > 0) {
-          await deleteBatch.commit();
-        }
-
-        // 2. Insertar los nuevos datos
-        let batch = writeBatch(db);
-        let count = 0;
-        
-        for (const entry of parsedData) {
-          const docRef = doc(collection(db, 'workEntries'));
-          const { id, ...dataToSave } = entry;
-          batch.set(docRef, dataToSave);
-          count++;
-
-          if (count === 400) {
-            await batch.commit();
-            batch = writeBatch(db);
-            count = 0;
-          }
-        }
-        
-        if (count > 0) {
-          await batch.commit();
-        }
-      } catch (error) {
-         console.error("Error saving imported data", error);
-         alert("Hubo un error al intentar guardar los datos importados en la nube.");
-      }
-    }
-  };
+    return () => { unsubscribeEntries(); unsubscribeMetadata(); };
+  }, []);
 
   useEffect(() => {
-    const root = window.document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    localStorage.setItem('theme', theme);
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    try { localStorage.setItem('theme', theme); } catch { /* Theme remains usable. */ }
   }, [theme]);
 
+  const filterOptions = useMemo(() => ({
+    years: Array.from(new Set<number>(workData.map(entry => Number(entry.ano)))).sort((a, b) => b - a),
+    months: MONTHS_ORDER,
+    people: Array.from(new Set(workData.map(entry => entry.persona))).sort(),
+    categories: Array.from(new Set([...CATEGORIES, ...workData.map(categoryOf)]))
+  }), [workData]);
+  const filteredData = useMemo(() => filterEntries(workData, filters), [workData, filters]);
+  const hasActiveFilters = !!(filters.year.length || filters.month.length || filters.person.length || filters.category.length || filters.search.trim());
+  const selectedPeople = filterOptions.people.filter(person => !filters.person.length || filters.person.includes(person));
+  const activeMonths = new Set(workData.map(entry => `${entry.ano}-${entry.mes}`)).size;
+
+  useEffect(() => {
+    if (!notice || notice.error) return;
+    const timer = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  const perform = async (action: () => Promise<void>, success: string) => {
+    if (busyRef.current) throw new Error('Espera a que termine la operación actual.');
+    busyRef.current = true; setBusy(true); setNotice(null);
+    try { await action(); setNotice({ text: success + (REVIEW_MODE ? ' (Prueba: no se modificaron los datos reales.)' : ''), error: false }); }
+    catch (error) { const code = (error as { code?: string })?.code; const text = code === 'permission-denied' ? 'No tienes permiso para guardar este cambio. Revisa el acceso a Firebase.' : code === 'unavailable' ? 'No hay conexión con Firebase. Tus datos de captura se conservan; vuelve a intentar.' : code ? 'No se pudo guardar el cambio. Revisa tu conexión e inténtalo de nuevo.' : error instanceof Error ? error.message : 'No se pudo guardar el cambio. Inténtalo de nuevo.'; setNotice({ text, error: true }); throw error; }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+
+  // A normal change and its timestamp are committed together.
+  const persistChange = async (change: (batch: ReturnType<typeof writeBatch>) => void) => {
+    const batch = writeBatch(db); change(batch);
+    batch.set(metadataRef, { updatedAt: serverTimestamp() }, { merge: true });
+    await batch.commit();
+  };
+  const markPreviewUpdate = (extra: Partial<UpdateInfo> = {}) => setInfo(prev => ({ ...prev, updatedAt: new Date().toISOString(), ...extra }));
+
+  const handleCategoryChange = async (id: string, categoria: string) => {
+    try { await perform(async () => {
+      if (REVIEW_MODE) { setWorkData(prev => prev.map(entry => entry.id === id ? { ...entry, categoria } : entry)); markPreviewUpdate(); }
+      else await persistChange(batch => batch.update(doc(db, 'workEntries', id), { categoria }));
+    }, 'Categoría guardada.'); } catch { /* Notice reports failure; current category is retained. */ }
+  };
+  const handleAddEntry = async (entry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => perform(async () => {
+    const data = { ...entry, ano: Number(entry.ano), mes: entry.mes.trim(), trabajo: entry.trabajo.trim() };
+    if (REVIEW_MODE) { setWorkData(prev => [...prev, { ...data, id: crypto.randomUUID() }]); markPreviewUpdate(); }
+    else await persistChange(batch => batch.set(doc(collection(db, 'workEntries')), data));
+  }, 'Registro guardado.');
+  const handleConfirmDelete = async () => {
+    if (!recordIdToDelete) return;
+    try { await perform(async () => {
+      if (REVIEW_MODE) { setWorkData(prev => prev.filter(entry => entry.id !== recordIdToDelete)); markPreviewUpdate(); }
+      else await persistChange(batch => batch.delete(doc(db, 'workEntries', recordIdToDelete)));
+      setRecordIdToDelete(null);
+    }, 'Registro eliminado.'); } catch { /* Keep confirmation open for retry. */ }
+  };
+
+  const replaceEntries = async (entries: WorkEntry[], fileName?: string) => {
+    if (REVIEW_MODE) {
+      setWorkData(entries);
+      markPreviewUpdate(fileName ? { lastImportAt: new Date().toISOString(), importFileName: fileName, importCount: entries.length } : {});
+      return;
+    }
+    const existing = await getDocs(collection(db, 'workEntries'));
+    // Reuse existing document IDs so ordinary replacements fit in one atomic batch.
+    const count = Math.max(existing.size, entries.length);
+    if (count > 499) throw new Error('El reemplazo admite hasta 499 registros por operación. No se modificaron los datos.');
+    const batch = writeBatch(db);
+    for (let index = 0; index < count; index++) {
+      const ref = existing.docs[index]?.ref || doc(collection(db, 'workEntries'));
+      if (entries[index]) { const { id, ...data } = entries[index]; batch.set(ref, data); }
+      else batch.delete(ref);
+    }
+    batch.set(metadataRef, { updatedAt: serverTimestamp(), ...(fileName ? { lastImportAt: serverTimestamp(), importFileName: fileName, importCount: entries.length } : {}) }, { merge: true });
+    await batch.commit();
+  };
+  const handleImportData = (entries: WorkEntry[], fileName: string) => perform(() => replaceEntries(entries, fileName), `Archivo importado: ${entries.length} registros.`);
+  const handleClearDatabase = async () => {
+    if (!window.confirm('¿Quieres eliminar todos los registros? No necesitas hacerlo antes de importar un Excel.')) return;
+    await perform(() => replaceEntries([]), 'Base de datos vaciada.');
+  };
 
   return (
     <div className="min-h-screen font-sans text-slate-800 dark:text-slate-200 flex flex-col">
+      {notice && <div className={`fixed bottom-4 right-4 left-4 sm:left-auto sm:max-w-lg z-50 p-4 rounded-xl shadow-lg border ${notice.error ? 'bg-red-50 border-red-300 text-red-900' : 'bg-green-50 border-green-300 text-green-900'}`} role={notice.error ? 'alert' : 'status'}>
+        <div className="flex gap-4 justify-between"><p>{notice.text}</p><button type="button" aria-label="Cerrar aviso" onClick={() => setNotice(null)} className="px-2 font-bold">×</button></div>
+      </div>}
       <div className="container mx-auto p-4 sm:p-6 md:p-8 flex-1">
+        {REVIEW_MODE && <div className="mb-4 rounded-xl bg-purple-100 dark:bg-purple-900 p-4 text-sm" role="status">Vista previa: las pruebas de datos se reinician al recargar y no modifican Firebase. Los filtros y la posición sí se recuerdan en este navegador.</div>}
         <Header theme={theme} setTheme={setTheme} />
-        {isFirebaseLoading && workData.length === 0 ? (
-          <div className="flex justify-center items-center h-64 mt-8">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 dark:border-indigo-400"></div>
-          </div>
-        ) : (
+        <div className="mt-4 flex flex-wrap justify-between items-start gap-3 text-sm text-slate-600 dark:text-slate-300">
+          <div><p>Última modificación: <strong>{formatDate(info.updatedAt)}</strong></p></div>
+          <button type="button" onClick={reset} className="text-purple-700 dark:text-purple-300 underline">Restablecer vista</button>
+        </div>
+        {isFirebaseLoading ? <p role="status" className="py-12 text-center">Cargando registros…</p> : loadFailed ? <p className="py-12 text-center">No hay conexión con los registros. <button onClick={() => window.location.reload()} className="underline">Volver a intentar</button></p> : (
           <main className="mt-8 flex flex-col gap-8 flex-1">
-            <StatCards 
-              totalEntries={workData.length}
-              uniquePeople={filterOptions.people.length}
-              activeMonths={activeYearMonthsCount}
-            />
-            <FilterPanel 
-              filters={filters}
-              setFilters={setFilters}
-              options={filterOptions}
-              resultCount={filteredData.length}
-              personCounts={filterOptions.people
-                .filter(person => filters.person.length === 0 || filters.person.includes(person))
-                .map(person => ({ person, count: filteredData.filter(entry => entry.persona === person).length }))}
-            />
-            <DataTable people={filterOptions.people.filter(person => filters.person.length === 0 || filters.person.includes(person))} data={filteredData} hasActiveFilters={hasActiveFilters} onDeleteEntry={handleDeleteEntry} />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-8">
-              <DataActions
-                fullData={workData}
-                onImport={handleImportData}
-                onClearData={handleClearDatabase}
-              />
-              <AddEntryForm 
-                peopleOptions={filterOptions.people}
-                monthOptions={MONTHS_ORDER}
-                onAddEntry={handleAddEntry}
-              />
+            <StatCards totalEntries={workData.length} uniquePeople={filterOptions.people.length} activeMonths={activeMonths} />
+            <FilterPanel filters={filters} setFilters={setFilters} options={filterOptions} resultCount={filteredData.length}
+              personCounts={selectedPeople.map(person => ({ person, count: filteredData.filter(entry => entry.persona === person).length }))} />
+            <WorkCharts data={filteredData} />
+            <DataTable categories={filterOptions.categories} onCategoryChange={handleCategoryChange} people={selectedPeople} data={filteredData} hasActiveFilters={hasActiveFilters} onDeleteEntry={setRecordIdToDelete}
+              busy={busy} page={view.page} pageSize={view.pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />
+            <AddEntryForm peopleOptions={filterOptions.people} monthOptions={MONTHS_ORDER} onAddEntry={handleAddEntry} busy={busy} />
+            <div className="pb-8">
+              <DataActions fullData={workData} onImport={handleImportData} onClearData={handleClearDatabase} busy={busy} />
             </div>
           </main>
         )}
       </div>
-      <ConfirmationModal
-        isOpen={isConfirmModalOpen}
-        onClose={handleCancelDelete}
-        onConfirm={handleConfirmDelete}
-        title="Confirmar Eliminación"
-        message="¿Está seguro de que desea eliminar este registro? Esta acción no se puede deshacer y los datos se perderán permanentemente."
-      />
+      <ConfirmationModal isOpen={!!recordIdToDelete} onClose={() => setRecordIdToDelete(null)} onConfirm={handleConfirmDelete} busy={busy} title="Confirmar eliminación" message="¿Quieres eliminar este registro? Esta acción no se puede deshacer." />
     </div>
   );
 }
-
 export default App;

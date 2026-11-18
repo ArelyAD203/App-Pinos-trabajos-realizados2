@@ -1,132 +1,72 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
+import { categoryOf, countBy } from '../workFilters';
+import { parseImport } from '../importEntries';
 import type { WorkEntry } from '../types';
 import { MONTHS_ORDER } from '../constants';
-
-declare global {
-    interface Window {
-        XLSX: any;
-    }
-}
-
-interface DataActionsProps {
-  fullData: WorkEntry[];
-  onImport: (data: any[]) => void;
-  onClearData: () => void;
-}
-
-const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <polyline points="3 6 5 6 21 6"></polyline>
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-    <line x1="10" y1="11" x2="10" y2="17"></line>
-    <line x1="14" y1="11" x2="14" y2="17"></line>
-  </svg>
-);
-
-const DownloadIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="7 10 12 15 17 10" />
-    <line x1="12" y1="15" x2="12" y2="3" />
-  </svg>
-);
-
-const UploadIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="17 8 12 3 7 8" />
-    <line x1="12" y1="3" x2="12" y2="15" />
-  </svg>
-);
-
-const DataActions: React.FC<DataActionsProps> = ({ fullData, onImport, onClearData }) => {
+declare global { interface Window { XLSX: any } }
+interface Props { fullData: WorkEntry[]; onImport: (entries: WorkEntry[], fileName: string) => Promise<void>; onClearData: () => Promise<void>; busy: boolean }
+const buttonClass = 'rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500';
+export default function DataActions({ fullData, onImport, onClearData, busy }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-
+  const [pending, setPending] = useState<{ name: string; entries: WorkEntry[] } | null>(null);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [reading, setReading] = useState(false);
+  const disabled = busy || reading;
   const handleExport = () => {
-    if (typeof window.XLSX === 'undefined') {
-        alert('La librería de exportación no está disponible.');
-        return;
-    }
-
-    const sortedData = [...fullData].sort((a, b) => {
-      if (a.ano !== b.ano) {
-        return a.ano - b.ano;
-      }
-      const monthAIndex = MONTHS_ORDER.indexOf(a.mes);
-      const monthBIndex = MONTHS_ORDER.indexOf(b.mes);
-      return monthAIndex - monthBIndex;
-    });
-
-    const worksheetData = sortedData.map(item => ({
-        'Mes': item.mes,
-        'Año': item.ano,
-        'Persona': item.persona,
-        'Trabajo Realizado': item.trabajo,
-    }));
-    
-    const worksheet = window.XLSX.utils.json_to_sheet(worksheetData);
-    const workbook = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(workbook, worksheet, 'Trabajos');
-    window.XLSX.writeFile(workbook, 'Reporte_Trabajos_Realizados.xlsx');
+    setError(''); setMessage('');
+    try {
+      if (!window.XLSX) throw new Error('No se pudo cargar la herramienta de Excel. Revisa tu conexión y recarga la página.');
+      const sorted = [...fullData].sort((a, b) => Number(a.ano) - Number(b.ano) || MONTHS_ORDER.indexOf(a.mes) - MONTHS_ORDER.indexOf(b.mes));
+      const rows = sorted.map(entry => ({ 'Mes': entry.mes, 'Año': entry.ano, 'Persona': entry.persona, 'Trabajo Realizado': entry.trabajo, 'Categoría': categoryOf(entry) }));
+      const workbook = window.XLSX.utils.book_new();
+      const sheet = rows.length ? window.XLSX.utils.json_to_sheet(rows) : window.XLSX.utils.aoa_to_sheet([['Mes', 'Año', 'Persona', 'Trabajo Realizado', 'Categoría']]);
+      window.XLSX.utils.book_append_sheet(workbook, sheet, 'Trabajos');
+      window.XLSX.writeFile(workbook, 'Reporte_Trabajos_Realizados.xlsx');
+      setMessage(`Excel generado: ${fullData.length} registros.`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo generar el archivo.'); }
   };
-  
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const fileData = e.target?.result;
-        if (!fileData) throw new Error("No se pudo leer el archivo");
-        const workbook = window.XLSX.read(fileData, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const json = window.XLSX.utils.sheet_to_json(worksheet);
-        onImport(json);
-      } catch (error) {
-         console.error("Error al procesar el archivo Excel:", error);
-         alert("Hubo un error al procesar el archivo. Asegúrese de que sea un archivo Excel válido.");
-      } finally {
-        if(fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-      }
-    };
-    reader.readAsBinaryString(file);
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    setError(''); setMessage(''); setPending(null); setReading(true);
+    try {
+      if (!window.XLSX) throw new Error('No se pudo cargar la herramienta de Excel. Revisa tu conexión y recarga la página.');
+      const workbook = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      if (!workbook.SheetNames.length) throw new Error('El archivo no tiene hojas.');
+      const rows = window.XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+      setPending({ name: file.name, entries: parseImport(rows) });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo leer el Excel. No se modificaron los datos.'); }
+    finally { setReading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
+  const confirmImport = async () => {
+    if (!pending) return;
+    setError(''); setMessage('');
+    try {
+      await onImport(pending.entries, pending.name);
+      setMessage(`Archivo importado: ${pending.entries.length} registros.`);
+      setPending(null);
+    } catch { setError('No se completó la importación. Revisa el aviso y vuelve a intentar; el archivo sigue preparado.'); }
   };
-
-  return (
-    <div className="p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 transition-all duration-300 ease-in-out hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600">
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Gestión de Datos</h3>
-      <div className="flex flex-col sm:flex-row gap-4">
-        <button onClick={onClearData} title="Borrará todos los registros de la nube" className="flex-1 inline-flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-red-500 text-white hover:bg-red-600 hover:shadow-lg hover:shadow-red-500/20 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800 transform hover:-translate-y-0.5">
-          <TrashIcon />
-          Limpiar BD
-        </button>
-        <button onClick={handleImportClick} title="Esto borrará los datos actuales y los reemplazará con los del Excel" className="flex-1 inline-flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-[#9B5DE5] text-white hover:bg-[#8A49D1] hover:shadow-lg hover:shadow-purple-500/20 focus:outline-none focus:ring-2 focus:ring-[#9B5DE5] focus:ring-offset-2 dark:focus:ring-offset-slate-800 transform hover:-translate-y-0.5">
-            <UploadIcon />
-            Importar y Reemplazar Datos
-        </button>
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          className="hidden"
-          accept=".xlsx, .xls"
-        />
-        <button onClick={handleExport} className="flex-1 inline-flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-[#FF9F1C] text-white hover:bg-[#E68F19] hover:shadow-lg hover:shadow-orange-500/20 focus:outline-none focus:ring-2 focus:ring-[#FF9F1C] focus:ring-offset-2 dark:focus:ring-offset-slate-800 transform hover:-translate-y-0.5">
-            <DownloadIcon />
-            Descargar en Excel
-        </button>
-      </div>
+  return <section className="p-6 bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700">
+    <h2 className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-3">Utilidades</h2>
+    <div className="flex flex-wrap gap-3">
+      <button type="button" disabled={disabled} onClick={() => fileInputRef.current?.click()} className={`${buttonClass} bg-slate-100 dark:bg-slate-700 min-w-12`}>{reading ? '…' : 'A'}</button>
+      <button type="button" disabled={disabled} onClick={handleExport} className={`${buttonClass} bg-slate-100 dark:bg-slate-700 min-w-12`}>B</button>
+      <button type="button" disabled={disabled} onClick={() => { setError(''); setMessage(''); void onClearData().catch(() => setError('No se pudo vaciar la base de datos. Revisa el aviso.')); }} className={`${buttonClass} bg-slate-100 dark:bg-slate-700 min-w-12`}>C</button>
     </div>
-  );
-};
-
-export default DataActions;
+    <input ref={fileInputRef} type="file" accept=".xlsx,.xls" aria-label="Seleccionar archivo" onChange={handleFileChange} className="hidden" disabled={disabled} />
+    {error && <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-300">{error}</p>}
+    {message && <p role="status" className="mt-4 text-sm text-green-700 dark:text-green-300">{message}</p>}
+    {pending && <section aria-label="Revisar importación" className="mt-5 p-4 rounded-xl border border-purple-300 dark:border-purple-600 space-y-3">
+      <h3 className="font-bold">Revisar antes de reemplazar</h3>
+      <p className="text-sm break-all">Archivo: {pending.name}</p>
+      <p className="text-sm"><strong>{pending.entries.length} registros válidos</strong> reemplazarán los {fullData.length} registros actuales.</p>
+      <dl className="flex flex-wrap gap-2 text-sm">{countBy(pending.entries, categoryOf).map(row => <div key={row.label} className="flex gap-2 p-2 rounded-lg bg-slate-100 dark:bg-slate-700"><dt>{row.label}:</dt><dd className="font-bold">{row.count}</dd></div>)}</dl>
+      <p className="text-sm text-slate-600 dark:text-slate-300">Se usa la primera hoja del archivo. Si encuentras un error, cancela y corrige el Excel antes de cargarlo.</p>
+      <div className="flex flex-wrap gap-3">
+        <button type="button" disabled={disabled} onClick={() => setPending(null)} className={`${buttonClass} bg-slate-100 dark:bg-slate-700`}>Cancelar importación</button>
+        <button type="button" disabled={disabled} onClick={() => void confirmImport()} className={`${buttonClass} bg-[#9B5DE5] text-white`}>{busy ? 'Importando…' : 'Reemplazar datos'}</button>
+      </div>
+    </section>}
+  </section>;
+}

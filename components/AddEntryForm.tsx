@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { CATEGORIES } from '../workFilters';
 import type { WorkEntry } from '../types';
 
 interface AddEntryFormProps {
-  onAddEntry: (entry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => void;
+  onAddEntry: (entry: Omit<WorkEntry, 'id' | 'ano'> & { ano: number | string }) => Promise<void>;
+  busy: boolean;
   peopleOptions: string[];
   monthOptions: string[];
 }
@@ -14,12 +16,13 @@ const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     </svg>
 );
 
-const AddEntryForm: React.FC<AddEntryFormProps> = ({ onAddEntry, peopleOptions, monthOptions }) => {
+const AddEntryForm: React.FC<AddEntryFormProps> = ({ onAddEntry, peopleOptions, monthOptions, busy }) => {
   const initialFormState = {
     ano: new Date().getFullYear().toString(),
     mes: monthOptions[0] || '',
     persona: '',
     trabajo: '',
+    categoria: 'Sin categoría',
     newPerson: '',
   };
   const [formData, setFormData] = useState(initialFormState);
@@ -35,7 +38,7 @@ const AddEntryForm: React.FC<AddEntryFormProps> = ({ onAddEntry, peopleOptions, 
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -56,17 +59,19 @@ const AddEntryForm: React.FC<AddEntryFormProps> = ({ onAddEntry, peopleOptions, 
     
     const finalPerson = persona === 'Otro' ? newPerson.trim() : persona;
 
-    onAddEntry({ ano, mes, persona: finalPerson, trabajo });
-    setFormData(initialFormState);
-    setShowNewPerson(false);
+    try {
+      await onAddEntry({ ano, mes, persona: finalPerson, trabajo, categoria: formData.categoria });
+      setFormData(initialFormState);
+      setShowNewPerson(false);
+    } catch { setError('No se pudo guardar. Conservamos tus datos para que puedas volver a intentar.'); }
   };
 
-  const inputClasses = "w-full p-3 rounded-xl text-base bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border-2 border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-[#9B5DE5] focus:border-transparent transition-all duration-200";
+  const inputClasses = "w-full p-3 rounded-xl text-base bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border-2 border-slate-200 dark:border-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500 focus:ring-2 focus:ring-[#9B5DE5] focus:border-transparent transition-all duration-200";
 
   return (
     <div className="p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 transition-all duration-300 ease-in-out hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600">
        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Añadir Nuevo Registro</h3>
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit}><fieldset disabled={busy} className="space-y-6 disabled:opacity-60">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="group">
               <label htmlFor="ano" className="block text-base font-medium text-slate-600 dark:text-slate-300 mb-2 transition-colors duration-300 group-hover:text-[#9B5DE5] dark:group-hover:text-purple-400">Año</label>
@@ -95,6 +100,12 @@ const AddEntryForm: React.FC<AddEntryFormProps> = ({ onAddEntry, peopleOptions, 
             </div>
         )}
 
+        <div>
+          <label htmlFor="categoria" className="block mb-2 font-medium">Categoría de trabajo</label>
+          <select id="categoria" name="categoria" value={formData.categoria} onChange={handleInputChange} className={inputClasses}>
+            {CATEGORIES.map(category => <option key={category}>{category}</option>)}
+          </select>
+        </div>
         <div className="group">
              <label htmlFor="trabajo" className="block text-base font-medium text-slate-600 dark:text-slate-300 mb-2 transition-colors duration-300 group-hover:text-[#9B5DE5] dark:group-hover:text-purple-400">Trabajo Realizado</label>
              <textarea name="trabajo" id="trabajo" value={formData.trabajo} onChange={handleInputChange} rows={4} className={inputClasses} required></textarea>
@@ -103,12 +114,12 @@ const AddEntryForm: React.FC<AddEntryFormProps> = ({ onAddEntry, peopleOptions, 
         {error && <p className="text-base text-red-500 dark:text-red-400">{error}</p>}
         
         <div className="text-right pt-2">
-            <button type="submit" className="inline-flex items-center justify-center gap-3 px-8 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-[#A3D900] text-slate-800 hover:bg-[#92BF00] focus:outline-none focus:ring-2 focus:ring-[#A3D900] focus:ring-offset-2 dark:focus:ring-offset-slate-800 hover:shadow-lg hover:shadow-lime-500/20 transform hover:-translate-y-1">
+            <button type="submit" className="inline-flex items-center justify-center gap-3 px-8 py-3.5 rounded-xl text-base font-semibold transition-all duration-300 bg-[#A3D900] text-slate-800 hover:bg-[#92BF00] focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500 focus:ring-2 focus:ring-[#A3D900] focus:ring-offset-2 dark:focus:ring-offset-slate-800 hover:shadow-lg hover:shadow-lime-500/20 transform hover:-translate-y-1">
                 <PlusIcon />
-                Guardar Registro
+                {busy ? 'Guardando…' : 'Guardar Registro'}
             </button>
         </div>
-      </form>
+      </fieldset></form>
     </div>
   );
 };

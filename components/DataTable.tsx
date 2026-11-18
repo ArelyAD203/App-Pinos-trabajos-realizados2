@@ -1,101 +1,79 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { categoryOf } from '../workFilters';
 import type { WorkEntry } from '../types';
-
 interface DataTableProps {
-  data: WorkEntry[];
-  people: string[];
-  hasActiveFilters: boolean;
-  onDeleteEntry: (id: string) => void;
+  data: WorkEntry[]; categories: string[]; people: string[]; hasActiveFilters: boolean;
+  onCategoryChange: (id: string, category: string) => Promise<void>;
+  onDeleteEntry: (id: string) => void; busy: boolean;
+  page: number; pageSize: number; onPageChange: (page: number) => void; onPageSizeChange: (size: number) => void;
 }
-
-const FilterIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
-        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-);
-
-const TrashIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-        <path d="M3 6h18" />
-        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-        <line x1="10" y1="11" x2="10" y2="17" />
-        <line x1="14" y1="11" x2="14" y2="17" />
-    </svg>
-);
-
-const DataTable: React.FC<DataTableProps> = ({ data, people, hasActiveFilters, onDeleteEntry }) => {
+const buttonClass = 'px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500';
+export default function DataTable({ data, categories, onCategoryChange, people, hasActiveFilters, onDeleteEntry, busy, page, pageSize, onPageChange, onPageSizeChange }: DataTableProps) {
+  const [localBusy, setLocalBusy] = useState<string | null>(null);
+  const pageCount = Math.max(1, Math.ceil(data.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const start = (currentPage - 1) * pageSize;
+  const visible = data.slice(start, start + pageSize);
+  useEffect(() => { if (page > pageCount) onPageChange(pageCount); }, [page, pageCount, onPageChange]);
+  const changeCategory = async (entry: WorkEntry, category: string) => {
+    setLocalBusy(entry.id);
+    try { await onCategoryChange(entry.id, category); } finally { setLocalBusy(null); }
+  };
+  const categorySelect = (entry: WorkEntry, prefix: string) => <div>
+    <label htmlFor={`${prefix}-${entry.id}`} className="sr-only">Categoría de {entry.trabajo}</label>
+    <select id={`${prefix}-${entry.id}`} value={categoryOf(entry)} disabled={busy || localBusy === entry.id}
+      onChange={event => void changeCategory(entry, event.target.value)} className="w-full min-w-40 p-2 rounded-lg border border-slate-300 bg-white dark:bg-slate-700 dark:border-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500 disabled:opacity-50">
+      {categories.map(category => <option key={category}>{category}</option>)}
+    </select>
+  </div>;
+  const deleteButton = (entry: WorkEntry) => <button type="button" disabled={busy} onClick={() => onDeleteEntry(entry.id)} aria-label={`Eliminar registro: ${entry.trabajo}`} className="text-red-600 dark:text-red-400 px-3 py-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500">Eliminar</button>;
+  const navigate = (next: number) => {
+    onPageChange(next);
+    document.getElementById('registros')?.scrollIntoView({ block: 'start' });
+  };
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg overflow-hidden border border-slate-200 dark:border-slate-700">
-      <div className="overflow-x-auto">
-        <table className="w-full text-base text-left text-slate-600 dark:text-slate-300">
-          <thead className="text-base text-white uppercase bg-blue-900 dark:bg-blue-950">
-            <tr>
-              <th scope="col" className="px-8 py-5 font-semibold transition-colors duration-300 ease-in-out hover:bg-blue-800 dark:hover:bg-blue-900/70 cursor-pointer">Mes</th>
-              <th scope="col" className="px-8 py-5 font-semibold transition-colors duration-300 ease-in-out hover:bg-blue-800 dark:hover:bg-blue-900/70 cursor-pointer">Año</th>
-              <th scope="col" className="px-8 py-5 font-semibold transition-colors duration-300 ease-in-out hover:bg-blue-800 dark:hover:bg-blue-900/70 cursor-pointer">Persona</th>
-              <th scope="col" className="px-8 py-5 font-semibold transition-colors duration-300 ease-in-out hover:bg-blue-800 dark:hover:bg-blue-900/70 cursor-pointer">Trabajo Realizado</th>
-              <th scope="col" className="px-8 py-5 font-semibold text-center">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.length > 0 ? (
-              data.map((entry, index) => (
-                <tr 
-                  key={entry.id} 
-                  className="border-b dark:border-slate-700 even:bg-slate-50 dark:even:bg-slate-800/50 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-all duration-300 ease-in-out hover:shadow-md hover:-translate-y-0.5 opacity-0 animate-fade-in-up"
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <td className="px-8 py-5 font-medium text-slate-900 dark:text-white whitespace-nowrap">{entry.mes}</td>
-                  <td className="px-8 py-5">{entry.ano}</td>
-                  <td className="px-8 py-5">{entry.persona}</td>
-                  <td className="px-8 py-5 min-w-[350px]">{entry.trabajo}</td>
-                  <td className="px-8 py-5 text-center">
-                    <button
-                      onClick={() => onDeleteEntry(entry.id)}
-                      className="p-2 rounded-full text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 dark:focus:ring-offset-slate-800 transition-colors duration-200"
-                      aria-label="Eliminar registro"
-                      title="Eliminar registro"
-                    >
-                      <TrashIcon />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5} className="text-center px-8 py-24 text-slate-500 dark:text-slate-400">
-                    <div className="flex flex-col items-center justify-center gap-4 transition-transform duration-300 ease-in-out hover:scale-105 cursor-pointer">
-                        <FilterIcon className="text-slate-400 dark:text-slate-500" />
-                        <p className="text-xl font-semibold text-slate-700 dark:text-slate-200">
-                           {hasActiveFilters ? "No se encontraron resultados" : "No hay registros disponibles"}
-                        </p>
-                        <p className="text-base">
-                            {hasActiveFilters ? "Intente ajustar o limpiar los filtros para ver más datos." : "Agregue nuevos registros para visualizar la información."}
-                        </p>
-                    </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+    <section id="registros" tabIndex={-1} aria-labelledby="records-title" className="scroll-mt-4 bg-white dark:bg-slate-800 rounded-2xl shadow-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+      <div className="p-5 flex flex-wrap justify-between items-center gap-4 border-b border-slate-200 dark:border-slate-700">
+        <div><h2 id="records-title" className="text-xl font-bold">Registros</h2><p className="text-sm text-slate-500 dark:text-slate-400" role="status">{data.length ? `Mostrando ${start + 1}–${Math.min(start + pageSize, data.length)} de ${data.length} registros` : '0 registros'}</p></div>
+        <label className="text-sm flex items-center gap-2">Registros por página
+          <select aria-label="Registros por página" value={pageSize} onChange={event => onPageSizeChange(Number(event.target.value))} className="p-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700">
+            {[25, 50, 100].map(size => <option key={size}>{size}</option>)}
+          </select>
+        </label>
       </div>
-      <div className="p-5 bg-slate-50 dark:bg-slate-800/80 text-base text-slate-600 dark:text-slate-400 border-t dark:border-slate-700">
-        <dl aria-label="Totales de los registros filtrados" aria-live="polite" className="flex flex-wrap gap-x-8 gap-y-3">
-          {people.map(person => (
-            <div key={person} className="flex items-center gap-2">
-              <dt>{person}:</dt>
-              <dd className="font-bold text-slate-900 dark:text-white">{data.filter(entry => entry.persona === person).length}</dd>
-            </div>
-          ))}
-          <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-            <dt>Total general:</dt>
-            <dd>{data.length} {data.length === 1 ? 'registro' : 'registros'}</dd>
-          </div>
+      {!data.length ? <div className="p-10 text-center"><h3 className="font-bold text-lg">{hasActiveFilters ? 'No se encontraron resultados' : 'No hay registros disponibles'}</h3><p className="mt-2 text-slate-500 dark:text-slate-400">{hasActiveFilters ? 'Quita algún filtro o cambia la búsqueda.' : 'Importa un Excel o añade un registro para comenzar.'}</p></div> : <>
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full text-sm text-left"><thead className="text-white bg-blue-900 dark:bg-blue-950"><tr>{['Mes', 'Año', 'Persona', 'Trabajo realizado', 'Categoría', 'Acciones'].map(label => <th key={label} scope="col" className="px-4 py-4 font-semibold">{label}</th>)}</tr></thead>
+            <tbody>{visible.map(entry => <tr key={entry.id} className="border-b border-slate-200 dark:border-slate-700 even:bg-slate-50 dark:even:bg-slate-700/30">
+              <td className="px-4 py-4 whitespace-nowrap">{entry.mes}</td><td className="px-4 py-4">{entry.ano}</td><td className="px-4 py-4">{entry.persona}</td>
+              <td className="px-4 py-4 min-w-60 break-words">{entry.trabajo}</td><td className="px-4 py-4">{categorySelect(entry, 'table-category')}</td><td className="px-4 py-4">{deleteButton(entry)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <ul aria-label="Tarjetas de registros" className="md:hidden divide-y divide-slate-200 dark:divide-slate-700">
+          {visible.map(entry => <li key={entry.id} className="p-5 space-y-3">
+            <div className="flex flex-wrap justify-between gap-2"><h3 className="font-bold">{entry.persona}</h3><span className="text-sm text-slate-500 dark:text-slate-400">{entry.mes} {entry.ano}</span></div>
+            <p className="whitespace-pre-wrap break-words">{entry.trabajo}</p>
+            <label htmlFor={`card-category-${entry.id}`} className="block text-sm font-semibold">Categoría</label>
+            {categorySelect(entry, 'card-category')}<div className="text-right">{deleteButton(entry)}</div>
+          </li>)}
+        </ul>
+      </>}
+      <nav aria-label="Paginación de registros" className="p-5 border-t border-slate-200 dark:border-slate-700 flex flex-wrap justify-between items-center gap-3">
+        <p className="text-sm">Página {currentPage} de {pageCount}</p><div className="flex flex-wrap gap-2">
+          <button type="button" className={buttonClass} disabled={currentPage === 1} onClick={() => navigate(1)}>Primera</button>
+          <button type="button" className={buttonClass} disabled={currentPage === 1} onClick={() => navigate(currentPage - 1)}>Anterior</button>
+          <button type="button" className={buttonClass} disabled={currentPage === pageCount} onClick={() => navigate(currentPage + 1)}>Siguiente</button>
+          <button type="button" className={buttonClass} disabled={currentPage === pageCount} onClick={() => navigate(pageCount)}>Última</button>
+        </div>
+      </nav>
+      <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700">
+        <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">Totales de todos los registros filtrados, incluyendo las demás páginas.</p>
+        <dl aria-label="Totales de los registros filtrados" className="flex flex-wrap gap-x-8 gap-y-3">
+          {people.map(person => <div key={person} className="flex gap-2"><dt>{person}:</dt><dd className="font-bold">{data.filter(entry => entry.persona === person).length}</dd></div>)}
+          <div className="flex gap-2 font-bold"><dt>Total general:</dt><dd>{data.length} registros</dd></div>
         </dl>
       </div>
-    </div>
+    </section>
   );
-};
-
-export default DataTable;
+}

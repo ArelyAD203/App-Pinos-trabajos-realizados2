@@ -11,6 +11,7 @@ interface FilterPanelProps {
     years: number[];
     months: string[];
     people: string[];
+    categories: string[];
   };
 }
 
@@ -47,7 +48,7 @@ const FilterButton: React.FC<{
   isActive: boolean;
   onClick: () => void;
 }> = ({ label, isActive, onClick }) => {
-  const baseClasses = "w-full text-left px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-slate-800 shadow-sm";
+  const baseClasses = "w-full text-left px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ease-in-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500 focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-slate-800 shadow-sm";
   const activeClasses = "bg-[#9B5DE5] text-white shadow-md shadow-purple-500/20 focus:ring-[#9B5DE5]";
   const inactiveClasses = "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600/60 hover:-translate-y-px";
 
@@ -59,12 +60,16 @@ const FilterButton: React.FC<{
 };
 
 const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options, resultCount, personCounts }) => {
-  const handleFilterChange = (filterName: 'year' | 'month' | 'search', value: string) => {
+  const handleFilterChange = (filterName: 'search', value: string) => {
     setFilters(prev => ({ ...prev, [filterName]: value }));
   };
 
+  const toggle = (key: 'year' | 'month' | 'category', value: string) => {
+    setFilters(prev => ({ ...prev, [key]: prev[key].includes(value) ? prev[key].filter(item => item !== value) : [...prev[key], value] }));
+  };
+
   const resetFilters = () => {
-    setFilters({ year: 'all', month: 'all', person: [], search: '' });
+    setFilters({ year: [], month: [], person: [], category: [], search: '' });
   };
 
   const firstHalfMonths = options.months.filter(
@@ -81,9 +86,15 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options,
         <input id="record-search" type="search" value={filters.search}
           onChange={event => handleFilterChange('search', event.target.value)}
           placeholder="Buscar en trabajos, personas, meses o años…"
-          className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+          className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500 focus:ring-2 focus:ring-purple-500" />
       </div>
-      <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">En Persona puedes seleccionar varias personas a la vez.</p>
+      <div aria-label="Filtros activos" className="mb-4 flex flex-wrap gap-2">
+        {(['year', 'month', 'person', 'category'] as const).flatMap(key => filters[key].map(value => <button key={`${key}-${value}`} type="button"
+          aria-label={`Quitar filtro ${value}`} onClick={() => setFilters(prev => ({ ...prev, [key]: prev[key].filter(item => item !== value) }))}
+          className="rounded-full bg-purple-100 dark:bg-purple-900 px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500">{value} <span aria-hidden="true">×</span></button>))}
+        {filters.search.trim() && <button type="button" aria-label="Quitar búsqueda" onClick={() => setFilters(prev => ({ ...prev, search: '' }))} className="rounded-full bg-purple-100 dark:bg-purple-900 px-3 py-2 text-sm">Búsqueda: {filters.search} <span aria-hidden="true">×</span></button>}
+      </div>
+      <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">Puedes seleccionar varios años, meses, personas y categorías. “Todos” elimina la selección de esa columna.</p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-8">
         {/* Year Kanban Column */}
         <div className="space-y-3">
@@ -94,15 +105,15 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options,
           <div className="flex flex-col gap-2">
             <FilterButton
               label="Todos"
-              isActive={filters.year === 'all'}
-              onClick={() => handleFilterChange('year', 'all')}
+              isActive={filters.year.length === 0}
+              onClick={() => setFilters(prev => ({ ...prev, year: [] }))}
             />
             {options.years.map(year => (
               <FilterButton
                 key={year}
                 label={year}
-                isActive={String(filters.year) === String(year)}
-                onClick={() => handleFilterChange('year', String(year))}
+                isActive={filters.year.includes(String(year))}
+                onClick={() => toggle('year', String(year))}
               />
             ))}
           </div>
@@ -117,8 +128,8 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options,
           <div className="flex flex-col gap-2">
             <FilterButton
               label="Todos"
-              isActive={filters.month === 'all'}
-              onClick={() => handleFilterChange('month', 'all')}
+              isActive={filters.month.length === 0}
+              onClick={() => setFilters(prev => ({ ...prev, month: [] }))}
             />
             <div className="grid grid-cols-2 gap-x-2">
               <div className="flex flex-col gap-2">
@@ -126,8 +137,8 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options,
                   <FilterButton
                     key={month}
                     label={month}
-                    isActive={filters.month === month}
-                    onClick={() => handleFilterChange('month', month)}
+                    isActive={filters.month.includes(month)}
+                    onClick={() => toggle('month', month)}
                   />
                 ))}
               </div>
@@ -136,8 +147,8 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options,
                   <FilterButton
                     key={month}
                     label={month}
-                    isActive={filters.month === month}
-                    onClick={() => handleFilterChange('month', month)}
+                    isActive={filters.month.includes(month)}
+                    onClick={() => toggle('month', month)}
                   />
                 ))}
               </div>
@@ -171,6 +182,13 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options,
         </div>
       </div>
       
+      <section aria-label="Filtrar por categoría" className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-700">
+        <h3 className="mb-3 text-base font-bold text-slate-500 dark:text-slate-400 uppercase">Categoría de trabajo</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          <FilterButton label="Todas" isActive={!filters.category.length} onClick={() => setFilters(prev => ({ ...prev, category: [] }))} />
+          {options.categories.map(category => <FilterButton key={category} label={category} isActive={filters.category.includes(category)} onClick={() => toggle('category', category)} />)}
+        </div>
+      </section>
       <section aria-label="Resumen de registros filtrados" aria-live="polite" className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-700">
         <h3 className="mb-3 text-base font-bold">Registros según los filtros</h3>
         <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -185,18 +203,20 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ filters, setFilters, options,
             <dd className="text-xl font-bold">{resultCount}</dd>
           </div>
         </dl>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold">Total general: {resultCount} registros</p><a href="#registros" className="px-4 py-2 rounded-lg bg-[#9B5DE5] text-white font-semibold text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500">Ver registros ↓</a></div>
       </section>
       <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4">
          <p role="status" aria-live="polite" className="text-sm font-semibold">
            {resultCount} {resultCount === 1 ? 'registro encontrado' : 'registros encontrados'}
            {filters.person.length > 0 && ` · ${filters.person.join(', ')}`}
-           {filters.month !== 'all' && ` · ${filters.month}`}
-           {filters.year !== 'all' && ` · ${filters.year}`}
+           {filters.month.length > 0 && ` · ${filters.month.join(', ')}`}
+           {filters.year.length > 0 && ` · ${filters.year.join(', ')}`}
+           {filters.category.length > 0 && ` · ${filters.category.join(', ')}`}
            {filters.search.trim() && ` · Búsqueda: “${filters.search.trim()}”`}
          </p>
          <button 
             onClick={resetFilters}
-            className="text-sm font-semibold text-[#9B5DE5] dark:text-purple-400 hover:underline focus:outline-none transition-transform duration-200 ease-in-out hover:scale-105"
+            className="text-sm font-semibold text-[#9B5DE5] dark:text-purple-400 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-purple-500 transition-transform duration-200 ease-in-out hover:scale-105"
           >
             Limpiar Todos los Filtros
           </button>

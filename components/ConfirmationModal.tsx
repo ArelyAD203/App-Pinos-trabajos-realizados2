@@ -1,44 +1,10 @@
-import React from 'react';
-
-interface ConfirmationModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  title: string;
-  message: string;
+import React, { useEffect, useRef } from 'react';
+interface Props { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; busy?: boolean }
+export default function ConfirmationModal({ isOpen, onClose, onConfirm, title, message, busy }: Props) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (isOpen && !ref.current?.open) ref.current?.showModal(); else if (!isOpen) ref.current?.close(); }, [isOpen]);
+  return <dialog ref={ref} aria-labelledby="confirm-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} className="m-auto w-full max-w-md p-6 rounded-2xl shadow-xl bg-white dark:bg-slate-800 dark:text-white backdrop:bg-black/50">
+    <h2 id="confirm-title" className="text-xl font-bold mb-4">{title}</h2><p className="mb-6">{message}</p>
+    <div className="flex justify-end gap-3"><button type="button" autoFocus disabled={busy} onClick={onClose} className="p-3 rounded-lg bg-slate-100 dark:bg-slate-700 disabled:opacity-50">Cancelar</button><button type="button" disabled={busy} onClick={onConfirm} className="p-3 rounded-lg bg-red-600 text-white disabled:opacity-50">{busy ? 'Eliminando…' : 'Sí, eliminar'}</button></div>
+  </dialog>;
 }
-
-const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ isOpen, onClose, onConfirm, title, message }) => {
-  if (!isOpen) return null;
-
-  return (
-    <div 
-      className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 z-50 flex justify-center items-center backdrop-blur-sm"
-      aria-modal="true"
-      role="dialog"
-    >
-      <div 
-        className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-8 m-4 max-w-md w-full transform transition-all animate-fade-in-scale-up"
-      >
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">{title}</h2>
-        <p className="text-base text-slate-600 dark:text-slate-300 mb-8">{message}</p>
-        <div className="flex justify-end gap-4">
-          <button
-            onClick={onClose}
-            className="px-6 py-3 rounded-xl text-base font-semibold transition-all duration-300 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-800"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-6 py-3 rounded-xl text-base font-semibold transition-all duration-300 bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800 shadow-lg shadow-red-500/20"
-          >
-            Sí, eliminar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default ConfirmationModal;
